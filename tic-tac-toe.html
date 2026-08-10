@@ -27,6 +27,46 @@
             margin-bottom: 10px;
         }
 
+        #options {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .option-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .option-row span {
+            color: #b5b5c9;
+            font-size: 0.9rem;
+        }
+
+        button.toggle {
+            font-size: 0.9rem;
+            padding: 6px 12px;
+            border: 1px solid #4a4a68;
+            border-radius: 4px;
+            background: transparent;
+            color: #f2f2f2;
+            cursor: pointer;
+        }
+
+        button.toggle:hover {
+            background: #38384f;
+        }
+
+        button.toggle.active {
+            background: #4a4a68;
+            border-color: #7a7ab0;
+        }
+
         #status {
             font-size: 1.2rem;
             margin-bottom: 20px;
@@ -97,6 +137,23 @@
 
 <body>
     <h1>Tic Tac Toe</h1>
+
+    <div id="options">
+        <div class="option-row">
+            <span>Mode:</span>
+            <button class="toggle" data-group="mode" data-value="2p">2 Players</button>
+            <button class="toggle" data-group="mode" data-value="ai">Vs Computer</button>
+        </div>
+        <div class="option-row" id="ai-options">
+            <span>Difficulty:</span>
+            <button class="toggle" data-group="difficulty" data-value="easy">Easy</button>
+            <button class="toggle" data-group="difficulty" data-value="unbeatable">Unbeatable</button>
+            <span>Go first:</span>
+            <button class="toggle" data-group="first" data-value="human">You</button>
+            <button class="toggle" data-group="first" data-value="computer">Computer</button>
+        </div>
+    </div>
+
     <div id="status"></div>
     <div id="board"></div>
     <div id="controls">
@@ -108,6 +165,8 @@
         const boardEl = document.getElementById('board');
         const statusEl = document.getElementById('status');
         const resetBtn = document.getElementById('reset-btn');
+        const aiOptionsEl = document.getElementById('ai-options');
+        const toggleButtons = document.querySelectorAll('button.toggle');
 
         const WIN_LINES = [
             [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -118,15 +177,25 @@
         let cells = Array(9).fill(null);
         let currentPlayer = 'X';
         let gameOver = false;
+        let aiThinking = false;
 
-        function checkWinner() {
+        let settings = {
+            mode: '2p',        // '2p' | 'ai'
+            difficulty: 'unbeatable', // 'easy' | 'unbeatable'
+            first: 'human',     // 'human' | 'computer'
+        };
+
+        let humanMark = 'X';
+        let aiMark = 'O';
+
+        function checkWinner(state) {
             for (const line of WIN_LINES) {
                 const [a, b, c] = line;
-                if (cells[a] && cells[a] === cells[b] && cells[a] === cells[c]) {
-                    return { winner: cells[a], line };
+                if (state[a] && state[a] === state[b] && state[a] === state[c]) {
+                    return { winner: state[a], line };
                 }
             }
-            if (cells.every(cell => cell !== null)) {
+            if (state.every(cell => cell !== null)) {
                 return { winner: 'draw', line: [] };
             }
             return null;
@@ -138,46 +207,172 @@
                 const btn = document.createElement('button');
                 btn.className = 'cell';
                 btn.textContent = value || '';
-                btn.disabled = value !== null || gameOver;
+                btn.disabled = value !== null || gameOver || aiThinking;
                 btn.addEventListener('click', () => handleMove(index));
                 boardEl.appendChild(btn);
             });
         }
 
-        function handleMove(index) {
-            if (cells[index] || gameOver) return;
-            cells[index] = currentPlayer;
+        function isAiTurn() {
+            return settings.mode === 'ai' && currentPlayer === aiMark;
+        }
 
-            const result = checkWinner();
+        function handleMove(index) {
+            if (cells[index] || gameOver || aiThinking) return;
+            if (isAiTurn()) return;
+
+            cells[index] = currentPlayer;
+            afterMove();
+        }
+
+        function afterMove() {
+            const result = checkWinner(cells);
             if (result) {
-                gameOver = true;
-                render();
-                if (result.winner === 'draw') {
-                    statusEl.textContent = "It's a draw!";
-                } else {
-                    statusEl.textContent = `Player ${result.winner} wins!`;
-                    result.line.forEach(i => {
-                        boardEl.children[i].classList.add('win');
-                    });
-                }
+                finishGame(result);
                 return;
             }
 
             currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
-            statusEl.textContent = `Player ${currentPlayer}'s turn`;
-            render();
+
+            if (isAiTurn()) {
+                statusEl.textContent = "Computer's turn";
+                render();
+                aiThinking = true;
+                render();
+                setTimeout(makeAiMove, 400);
+            } else {
+                const label = settings.mode === 'ai' ? 'Your turn' : `Player ${currentPlayer}'s turn`;
+                statusEl.textContent = label;
+                render();
+            }
         }
+
+        function finishGame(result) {
+            gameOver = true;
+            render();
+            if (result.winner === 'draw') {
+                statusEl.textContent = "It's a draw!";
+            } else if (settings.mode === 'ai') {
+                statusEl.textContent = result.winner === humanMark ? 'You win!' : 'Computer wins!';
+                result.line.forEach(i => boardEl.children[i].classList.add('win'));
+            } else {
+                statusEl.textContent = `Player ${result.winner} wins!`;
+                result.line.forEach(i => boardEl.children[i].classList.add('win'));
+            }
+        }
+
+        function makeAiMove() {
+            aiThinking = false;
+            if (gameOver) return;
+
+            const emptyIndices = cells.reduce((acc, v, i) => {
+                if (v === null) acc.push(i);
+                return acc;
+            }, []);
+
+            let move;
+            if (settings.difficulty === 'easy') {
+                move = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
+            } else {
+                move = bestMove(cells);
+            }
+
+            cells[move] = aiMark;
+            afterMove();
+        }
+
+        function minimax(state, depth, isMaximizing) {
+            const result = checkWinner(state);
+            if (result) {
+                if (result.winner === aiMark) return 10 - depth;
+                if (result.winner === humanMark) return depth - 10;
+                return 0;
+            }
+
+            if (isMaximizing) {
+                let best = -Infinity;
+                for (let i = 0; i < state.length; i++) {
+                    if (state[i] !== null) continue;
+                    state[i] = aiMark;
+                    best = Math.max(best, minimax(state, depth + 1, false));
+                    state[i] = null;
+                }
+                return best;
+            } else {
+                let best = Infinity;
+                for (let i = 0; i < state.length; i++) {
+                    if (state[i] !== null) continue;
+                    state[i] = humanMark;
+                    best = Math.min(best, minimax(state, depth + 1, true));
+                    state[i] = null;
+                }
+                return best;
+            }
+        }
+
+        function bestMove(state) {
+            let bestScore = -Infinity;
+            let move = null;
+            for (let i = 0; i < state.length; i++) {
+                if (state[i] !== null) continue;
+                state[i] = aiMark;
+                const score = minimax(state, 0, false);
+                state[i] = null;
+                if (score > bestScore) {
+                    bestScore = score;
+                    move = i;
+                }
+            }
+            return move;
+        }
+
+        function updateAiOptionsVisibility() {
+            aiOptionsEl.style.display = settings.mode === 'ai' ? 'flex' : 'none';
+        }
+
+        function updateToggleStyles() {
+            toggleButtons.forEach(btn => {
+                const group = btn.dataset.group;
+                btn.classList.toggle('active', settings[group] === btn.dataset.value);
+            });
+        }
+
+        toggleButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const group = btn.dataset.group;
+                settings[group] = btn.dataset.value;
+                updateToggleStyles();
+                updateAiOptionsVisibility();
+                resetGame();
+            });
+        });
 
         function resetGame() {
             cells = Array(9).fill(null);
             currentPlayer = 'X';
             gameOver = false;
-            statusEl.textContent = `Player ${currentPlayer}'s turn`;
-            render();
+            aiThinking = false;
+
+            humanMark = settings.first === 'human' ? 'X' : 'O';
+            aiMark = humanMark === 'X' ? 'O' : 'X';
+
+            if (isAiTurn()) {
+                statusEl.textContent = "Computer's turn";
+                render();
+                aiThinking = true;
+                render();
+                setTimeout(makeAiMove, 400);
+            } else {
+                const label = settings.mode === 'ai' ? 'Your turn' : `Player ${currentPlayer}'s turn`;
+                statusEl.textContent = label;
+                render();
+            }
         }
 
         resetBtn.addEventListener('click', resetGame);
 
+        updateToggleStyles();
+        updateAiOptionsVisibility();
         resetGame();
     </script>
 </body>
